@@ -8,4 +8,5 @@ name = "steamm_ox"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = "1.0.98"
 uint = "0.10.0"

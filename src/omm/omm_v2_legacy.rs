@@ -1,11 +1,9 @@
 use crate::{
-    math::{
-        decimal::Decimal,
-        decimal_to_fixedpoint64,
-        fixed_point::{FixedPoint64, FixedPointError},
-    },
+    SwapQuote, get_quote,
+    math::{decimal::Decimal, decimal_to_fixedpoint64, fixed_point::FixedPoint64},
     to_b_token, to_underlying,
 };
+use anyhow::Result;
 
 // === Swap Functions ===
 
@@ -26,7 +24,49 @@ pub fn quote_swap(
     x2y: bool,
     b_token_ratio_x: Decimal,
     b_token_ratio_y: Decimal,
-) -> Result<u64, FixedPointError> {
+    swap_fee_bps: u64,
+) -> Result<SwapQuote> {
+    let amount_out_btoken = quote_swap_no_fees(
+        b_token_amount_in,
+        b_token_reserve_x,
+        b_token_reserve_y,
+        price_x.clone(),
+        price_y.clone(),
+        decimals_x,
+        decimals_y,
+        amplifier,
+        x2y,
+        b_token_ratio_x,
+        b_token_ratio_y,
+    )?;
+
+    Ok(get_quote(
+        b_token_amount_in,
+        amount_out_btoken,
+        x2y,
+        swap_fee_bps,
+        None,
+    ))
+}
+
+pub fn quote_swap_no_fees(
+    // Amount in (btoken token - e.g. bSUI or bUSDC)
+    b_token_amount_in: u64,
+    // Reserve X (btoken token - e.g. bSUI)
+    b_token_reserve_x: u64,
+    // Reserve Y (btoken token - e.g. bUSDC)
+    b_token_reserve_y: u64,
+    // Price X (underlying price - e.g. 3 SUI)
+    price_x: Decimal,
+    // Price Y (underlying price - e.g. 1 USDC)
+    price_y: Decimal,
+    decimals_x: u32,
+    decimals_y: u32,
+    amplifier: u32,
+    x2y: bool,
+    b_token_ratio_x: Decimal,
+    b_token_ratio_y: Decimal,
+) -> Result<u64> {
     let reserve_x = to_underlying(b_token_reserve_x, &b_token_ratio_x);
     let reserve_y = to_underlying(b_token_reserve_y, &b_token_ratio_y);
 
@@ -84,7 +124,7 @@ pub fn quote_swap_inner(
     decimals_y: u32,
     amplifier: u32,
     x2y: bool,
-) -> Result<u128, FixedPointError> {
+) -> Result<u128> {
     let r_x = FixedPoint64::from(reserve_x)?;
     let r_y = FixedPoint64::from(reserve_y)?;
     let p_x = decimal_to_fixedpoint64(price_x)?;
@@ -128,7 +168,7 @@ fn newton_raphson(
     k: &FixedPoint64,
     a: &FixedPoint64,
     initial_z: &FixedPoint64,
-) -> Result<FixedPoint64, FixedPointError> {
+) -> Result<FixedPoint64> {
     let one = FixedPoint64::one()?;
     let min_z = FixedPoint64::from_rational(1, 100_000)?; // 1e-5
     let max_z = FixedPoint64::from_rational(999_999_999_999_999_999, 1_000_000_000_000_000_000)?; // 0.999999999999999999
@@ -152,9 +192,7 @@ fn newton_raphson(
         let fp = compute_f_prime(&z, a)?;
 
         if fp.lt(&FixedPoint64::from_rational(1, 10_000_000_000)?) {
-            return Err(FixedPointError::AssertionFailed(
-                "Derivative near zero (error code 1001)".to_string(),
-            ));
+            return Err(anyhow::anyhow!("Derivative near zero (error code 1001)"));
         }
 
         let fx_div_fp = fx_val.div(&fp)?;
@@ -204,11 +242,7 @@ fn newton_raphson(
     Ok(z)
 }
 
-fn compute_f(
-    z: &FixedPoint64,
-    a: &FixedPoint64,
-    k: &FixedPoint64,
-) -> Result<(FixedPoint64, bool), FixedPointError> {
+fn compute_f(z: &FixedPoint64, a: &FixedPoint64, k: &FixedPoint64) -> Result<(FixedPoint64, bool)> {
     let one = FixedPoint64::one()?;
     let ln2_64 =
         FixedPoint64::from_raw_value(12_786_308_645_202_655_660)?.mul(&FixedPoint64::from(64)?)?;
@@ -220,9 +254,7 @@ fn compute_f(
     let ln_plus_64ln2 = one_minus_z.ln_plus_64ln2()?;
 
     if ln_plus_64ln2.gt(&ln2_64) {
-        return Err(FixedPointError::AssertionFailed(
-            "ln_plus_64ln2 > ln2_64 (code 999)".to_string(),
-        ));
+        return Err(anyhow::anyhow!("ln_plus_64ln2 > ln2_64 (code 999)"));
     }
 
     let ln_magnitude = ln2_64.sub(&ln_plus_64ln2)?;
@@ -237,7 +269,7 @@ fn compute_f(
     }
 }
 
-fn compute_f_prime(z: &FixedPoint64, a: &FixedPoint64) -> Result<FixedPoint64, FixedPointError> {
+fn compute_f_prime(z: &FixedPoint64, a: &FixedPoint64) -> Result<FixedPoint64> {
     let one = FixedPoint64::one()?;
     let one_div_a = one.div(a)?;
     let term3 = one.div(&a.mul(&one.sub(z)?)?)?;
@@ -249,9 +281,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_quote_swap() -> Result<(), FixedPointError> {
+    fn test_quote_swap() -> Result<()> {
         // // Test case 1
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10_000_000,        // 10 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -267,7 +299,7 @@ mod tests {
         assert_eq!(amt_out, 3_327_783_945, "Test case 1 failed");
 
         // Test case 2
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             100_000_000,       // 100 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -283,7 +315,7 @@ mod tests {
         assert_eq!(amt_out, 32_783_899_517, "Test case 2 failed");
 
         // Test case 3
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10_000_000_000,    // 10 * 10^9
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -299,7 +331,7 @@ mod tests {
         assert_eq!(amt_out, 29_554_466, "Test case 3 failed");
 
         // Test case 4
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             100_000_000_000,   // 100 * 10^9
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -318,9 +350,9 @@ mod tests {
     }
 
     #[test]
-    fn test_quote_swap_with_different_btoken_ratios() -> Result<(), FixedPointError> {
+    fn test_quote_swap_with_different_btoken_ratios() -> Result<()> {
         // // Test case 1
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10_000_000,        // 10 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -336,7 +368,7 @@ mod tests {
         assert_eq!(amt_out, 3_327_783_945, "Test case 1 failed");
 
         // Changing btoken ratio of input token does not impact output
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             5_000_000,         // 10 / btoken ratio y * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -352,7 +384,7 @@ mod tests {
         assert_eq!(amt_out, 3_327_783_945, "Test case 1 failed");
 
         // Changing btoken ratio of output token DOES impact output
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10_000_000,        // 10 / * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -368,7 +400,7 @@ mod tests {
         assert_eq!(amt_out, 6_644_493_744, "Test case 1 failed");
 
         // Changing btoken ratio of output token DOES impact output
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10_000_000,        // 10 / * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -709,7 +741,7 @@ mod tests {
         let mut results = Vec::new();
 
         for (i, input) in inputs.iter().enumerate() {
-            let result = quote_swap(
+            let result = quote_swap_no_fees(
                 input.0 as u64,                // amount_in
                 input.1 as u64,                // reserve_x
                 input.2 as u64,                // reserve_y

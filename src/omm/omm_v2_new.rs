@@ -1,7 +1,9 @@
 use crate::{
-    math::{decimal::Decimal, fixed_point::FixedPointError, u256::U256},
+    BPS_SCALE, SwapQuote, get_quote,
+    math::{decimal::Decimal, u256::U256},
     to_b_token, to_underlying,
 };
+use anyhow::Result;
 
 const SCALE: u64 = 10000000000;
 const A_PRECISION: u128 = 100;
@@ -26,7 +28,64 @@ pub fn quote_swap(
     x2y: bool,
     b_token_ratio_x: Decimal,
     b_token_ratio_y: Decimal,
-) -> Result<u64, FixedPointError> {
+    swap_fee_bps: u64,
+    price_confidence_a: Decimal,
+    price_confidence_b: Decimal,
+) -> Result<SwapQuote> {
+    let amount_out_btoken = quote_swap_no_fees(
+        b_token_amount_in,
+        b_token_reserve_x,
+        b_token_reserve_y,
+        price_x.clone(),
+        price_y.clone(),
+        decimals_x,
+        decimals_y,
+        amplifier,
+        x2y,
+        b_token_ratio_x,
+        b_token_ratio_y,
+    )?;
+
+    let price_uncertainty_ratio_a = price_uncertainty_ratio(price_x, price_confidence_a)?;
+    let price_uncertainty_ratio_b = price_uncertainty_ratio(price_y, price_confidence_b)?;
+
+    Ok(get_quote(
+        b_token_amount_in,
+        amount_out_btoken,
+        x2y,
+        swap_fee_bps,
+        Some(price_uncertainty_ratio_a.max(price_uncertainty_ratio_b)),
+    ))
+}
+
+fn price_uncertainty_ratio(price: Decimal, price_confidence: Decimal) -> Result<u64> {
+    Ok(price_confidence
+        .checked_mul(&Decimal::from(BPS_SCALE))
+        .ok_or_else(|| anyhow::anyhow!("Multiplication failed"))?
+        .checked_div(&price)
+        .ok_or_else(|| anyhow::anyhow!("Division failed"))?
+        .checked_floor()
+        .ok_or_else(|| anyhow::anyhow!("Floor failed"))?)
+}
+
+pub fn quote_swap_no_fees(
+    // Amount in (btoken token - e.g. bSUI or bUSDC)
+    b_token_amount_in: u64,
+    // Reserve X (btoken token - e.g. bSUI)
+    b_token_reserve_x: u64,
+    // Reserve Y (btoken token - e.g. bUSDC)
+    b_token_reserve_y: u64,
+    // Price X (underlying price - e.g. 3 SUI)
+    price_x: Decimal,
+    // Price Y (underlying price - e.g. 1 USDC)
+    price_y: Decimal,
+    decimals_x: u32,
+    decimals_y: u32,
+    amplifier: u32,
+    x2y: bool,
+    b_token_ratio_x: Decimal,
+    b_token_ratio_y: Decimal,
+) -> Result<u64> {
     let amount_in = to_underlying(
         b_token_amount_in,
         if x2y {
@@ -39,8 +98,8 @@ pub fn quote_swap(
     let reserve_x = to_underlying(b_token_reserve_x, &b_token_ratio_x);
     let reserve_y = to_underlying(b_token_reserve_y, &b_token_ratio_y);
 
-    let (price_x_integer_part, price_x_decimal_part_inverted) = split_price(price_x);
-    let (price_y_integer_part, price_y_decimal_part_inverted) = split_price(price_y);
+    let (price_x_integer_part, price_x_decimal_part_inverted) = split_price(price_x)?;
+    let (price_y_integer_part, price_y_decimal_part_inverted) = split_price(price_y)?;
 
     // We avoid using Decimal and use u256 instead to increase the overflow limit
     // Reserves are in USD value and scaled by 10^10
@@ -131,24 +190,27 @@ pub fn quote_swap(
 
 /// Splits the price into integer and decimal part, using U256.
 /// The decimal part is inverted and floored to U256, or None if no decimal part.
-pub fn split_price(price: Decimal) -> (U256, Option<U256>) {
-    let price_integer_part_u64 = price.checked_floor::<u64>().unwrap();
+pub fn split_price(price: Decimal) -> Result<(U256, Option<U256>)> {
+    let price_integer_part_u64 = price
+        .checked_floor::<u64>()
+        .ok_or_else(|| anyhow::anyhow!("Failed to get integer part of price"))?;
+
     let price_integer_part = U256::from(price_integer_part_u64);
     let price_decimal_part = price
         .checked_sub(&Decimal::from(price_integer_part_u64))
-        .unwrap();
+        .ok_or_else(|| anyhow::anyhow!("Failed to get decimal part of price"))?;
 
     if price_decimal_part.eq(&Decimal::from(0_u64)) {
-        (price_integer_part, None)
+        Ok((price_integer_part, None))
     } else {
         let price_decimal_part_inverted = (Decimal::from(1_u64).checked_div(&price_decimal_part))
-            .unwrap()
+            .ok_or_else(|| anyhow::anyhow!("Failed to invert decimal part of price"))?
             .checked_floor::<u64>()
-            .unwrap();
-        (
+            .ok_or_else(|| anyhow::anyhow!("Failed to floor inverted decimal part of price"))?;
+        Ok((
             price_integer_part,
             Some(U256::from(price_decimal_part_inverted)),
-        )
+        ))
     }
 }
 
@@ -255,9 +317,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_quote_swap() -> Result<(), FixedPointError> {
+    fn test_quote_swap() -> Result<()> {
         // // Test case 1
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10_000_000,        // 10 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -273,7 +335,7 @@ mod tests {
         assert_eq!(amt_out, 5_156_539_131, "Test case 1 failed");
 
         // Test case 2
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             100_000_000,       // 100 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -289,7 +351,7 @@ mod tests {
         assert_eq!(amt_out, 49_852_725_214, "Test case 2 failed");
 
         // Test case 3
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             5_156_539_131,     // 5.15 SUI
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
@@ -308,9 +370,9 @@ mod tests {
     }
 
     #[test]
-    fn test_quote_swap_with_different_btoken_ratios() -> Result<(), FixedPointError> {
+    fn test_quote_swap_with_different_btoken_ratios() -> Result<()> {
         // Test case 1
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             11000000,          // 10 * 10^6 * 1.1
             1_000_000_000_000, // 1_000 * 10^9
             3_000_000_000,     // 1_000 * 10^6
@@ -327,7 +389,7 @@ mod tests {
         )?;
         assert_eq!(amt_out, 3_437_018_129, "Test case 1 failed");
 
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10000000,          // 10 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             3_000_000_000,     // 1_000 * 10^6
@@ -342,7 +404,7 @@ mod tests {
         )?;
         assert_eq!(amt_out, 5_181_584_616, "Test case 2 failed");
 
-        let amt_out = quote_swap(
+        let amt_out = quote_swap_no_fees(
             10000000,          // 10 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             3_000_000_000,     // 1_000 * 10^6

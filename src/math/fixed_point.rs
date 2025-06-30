@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::convert::TryInto;
 
 use crate::math::u256::U256;
@@ -7,32 +8,32 @@ const LN2: u128 = 12_786_308_645_202_655_660; // ln(2) in fixed 64 representatio
 const MAX_U128: u128 = 340_282_366_920_938_463_463_374_607_431_768_211_455; // 2^128 - 1
 
 // === Errors ===
-#[derive(Debug)]
-pub enum FixedPointError {
-    OutOfRange(String),
-    ZeroDivision,
-    NegativeResult,
-    Overflow(String),
-    LogOfZero,
-    SqrtOfNegative,
-    AssertionFailed(String),
-}
+// #[derive(Debug)]
+// pub enum FixedPointError {
+//     OutOfRange(String),
+//     ZeroDivision,
+//     NegativeResult,
+//     Overflow(String),
+//     LogOfZero,
+//     SqrtOfNegative,
+//     AssertionFailed(String),
+// }
 
-impl std::fmt::Display for FixedPointError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FixedPointError::OutOfRange(msg) => write!(f, "Value out of range: {}", msg),
-            FixedPointError::ZeroDivision => write!(f, "Zero division"),
-            FixedPointError::NegativeResult => write!(f, "Negative result"),
-            FixedPointError::Overflow(msg) => write!(f, "Overflow: {}", msg),
-            FixedPointError::LogOfZero => write!(f, "Log of zero"),
-            FixedPointError::SqrtOfNegative => write!(f, "Square root of negative number"),
-            FixedPointError::AssertionFailed(msg) => write!(f, "Assertion failed: {}", msg),
-        }
-    }
-}
+// impl std::fmt::Display for FixedPointError {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             FixedPointError::OutOfRange(msg) => write!(f, "Value out of range: {}", msg),
+//             FixedPointError::ZeroDivision => write!(f, "Zero division"),
+//             FixedPointError::NegativeResult => write!(f, "Negative result"),
+//             FixedPointError::Overflow(msg) => write!(f, "Overflow: {}", msg),
+//             FixedPointError::LogOfZero => write!(f, "Log of zero"),
+//             FixedPointError::SqrtOfNegative => write!(f, "Square root of negative number"),
+//             FixedPointError::AssertionFailed(msg) => write!(f, "Assertion failed: {}", msg),
+//         }
+//     }
+// }
 
-impl std::error::Error for FixedPointError {}
+// impl std::error::Error for FixedPointError {}
 
 // === FixedPoint64 Struct ===
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -60,9 +61,9 @@ impl fmt::Display for FixedPoint64 {
 }
 
 impl FixedPoint64 {
-    pub fn new(value: u128) -> Result<Self, FixedPointError> {
+    pub fn new(value: u128) -> Result<Self> {
         if value > MAX_U128 {
-            return Err(FixedPointError::OutOfRange(value.to_string()));
+            return Err(anyhow::anyhow!("Value out of range: {}", value));
         }
         Ok(FixedPoint64 { value })
     }
@@ -73,38 +74,38 @@ impl FixedPoint64 {
     }
 
     // === Convert Functions ===
-    pub fn from(value: u128) -> Result<Self, FixedPointError> {
+    pub fn from(value: u128) -> Result<Self> {
         let scaled_value = value
             .checked_shl(64)
-            .ok_or_else(|| FixedPointError::Overflow("Shift overflow".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("Shift overflow"))?;
         Self::new(scaled_value)
     }
 
-    pub fn one() -> Result<Self, FixedPointError> {
+    pub fn one() -> Result<Self> {
         Self::from(1)
     }
 
-    pub fn zero() -> Result<Self, FixedPointError> {
+    pub fn zero() -> Result<Self> {
         Self::from(0)
     }
 
-    pub fn from_raw_value(value: u128) -> Result<Self, FixedPointError> {
+    pub fn from_raw_value(value: u128) -> Result<Self> {
         Self::new(value)
     }
 
-    pub fn from_rational(numerator: u128, denominator: u128) -> Result<Self, FixedPointError> {
+    pub fn from_rational(numerator: u128, denominator: u128) -> Result<Self> {
         if denominator == 0 {
-            return Err(FixedPointError::ZeroDivision);
+            return Err(anyhow::anyhow!("Zero division"));
         }
         let scaled_numerator = numerator
             .checked_shl(64)
-            .ok_or_else(|| FixedPointError::Overflow("Shift overflow".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("Shift overflow"))?;
         let quotient = scaled_numerator / denominator;
         if quotient == 0 && numerator != 0 {
-            return Err(FixedPointError::OutOfRange("Result too small".to_string()));
+            return Err(anyhow::anyhow!("Result too small"));
         }
         if quotient > MAX_U128 {
-            return Err(FixedPointError::OutOfRange("Result too large".to_string()));
+            return Err(anyhow::anyhow!("Result too large"));
         }
         Self::new(quotient)
     }
@@ -166,22 +167,22 @@ impl FixedPoint64 {
     }
 
     // === Math Operations ===
-    pub fn sub(&self, other: &Self) -> Result<Self, FixedPointError> {
+    pub fn sub(&self, other: &Self) -> Result<Self> {
         if self.value < other.value {
-            return Err(FixedPointError::NegativeResult);
+            return Err(anyhow::anyhow!("Negative result"));
         }
         Self::new(self.value - other.value)
     }
 
-    pub fn add(&self, other: &Self) -> Result<Self, FixedPointError> {
+    pub fn add(&self, other: &Self) -> Result<Self> {
         let result = self
             .value
             .checked_add(other.value)
-            .ok_or_else(|| FixedPointError::Overflow("Addition overflow".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("Addition overflow"))?;
         Self::new(result)
     }
 
-    pub fn mul(&self, other: &Self) -> Result<Self, FixedPointError> {
+    pub fn mul(&self, other: &Self) -> Result<Self> {
         // Convert u128 values to U256 for multiplication
         let x = U256::from(self.value);
         let y = U256::from(other.value);
@@ -190,16 +191,16 @@ impl FixedPoint64 {
         let product = (x * y) >> 64;
 
         // Convert back to u128, checking for overflow
-        let result: u128 = product.try_into().map_err(|_| {
-            FixedPointError::Overflow("U256 to u128 conversion overflow (mul)".to_string())
-        })?;
+        let result: u128 = product
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("U256 to u128 conversion overflow (mul)"))?;
 
         Self::new(result)
     }
 
-    pub fn div(&self, other: &Self) -> Result<Self, FixedPointError> {
+    pub fn div(&self, other: &Self) -> Result<Self> {
         if other.value == 0 {
-            return Err(FixedPointError::ZeroDivision);
+            return Err(anyhow::anyhow!("Zero division"));
         }
 
         // Convert u128 values to U256
@@ -213,28 +214,26 @@ impl FixedPoint64 {
         let result = shifted_x / y;
 
         // Convert back to u128, checking for overflow
-        let result_u128: u128 = result.try_into().map_err(|_| {
-            FixedPointError::Overflow("U256 to u128 conversion overflow (div)".to_string())
-        })?;
+        let result_u128: u128 = result
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("U256 to u128 conversion overflow (div)"))?;
 
         Self::new(result_u128)
     }
 
-    pub fn pow(&self, exponent: u32) -> Result<Self, FixedPointError> {
+    pub fn pow(&self, exponent: u32) -> Result<Self> {
         let raw_value = pow_raw(self.value.into(), exponent as u128)?
             .try_into()
-            .map_err(|_| {
-                FixedPointError::Overflow("U256 to u128 conversion overflow".to_string())
-            })?;
+            .map_err(|_| anyhow::anyhow!("U256 to u128 conversion overflow (pow)"))?;
 
         Self::new(raw_value)
     }
 
-    pub fn log2_plus_64(&self) -> Result<Self, FixedPointError> {
+    pub fn log2_plus_64(&self) -> Result<Self> {
         log2_64(self.value)
     }
 
-    pub fn ln_plus_64ln2(&self) -> Result<Self, FixedPointError> {
+    pub fn ln_plus_64ln2(&self) -> Result<Self> {
         // Compute log2_64 of self.value
         let x = log2_64(self.value)?.value;
 
@@ -246,11 +245,9 @@ impl FixedPoint64 {
         let result = (x_u256 * ln2_u256) >> 64;
 
         // Convert back to u128, checking for overflow
-        let result_u128: u128 = result.try_into().map_err(|_| {
-            FixedPointError::Overflow(
-                "U256 to u128 conversion overflow (ln_plus_64ln2)".to_string(),
-            )
-        })?;
+        let result_u128: u128 = result
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("U256 to u128 conversion overflow (pow)"))?;
 
         Self::from_raw_value(result_u128)
     }
@@ -261,11 +258,9 @@ impl FixedPoint64 {
     pub fn multiply_divide(
         numerators: &mut Vec<FixedPoint64>,
         denominators: &mut Vec<FixedPoint64>,
-    ) -> Result<FixedPoint64, FixedPointError> {
+    ) -> Result<FixedPoint64> {
         if numerators.is_empty() {
-            return Err(FixedPointError::AssertionFailed(
-                "No numerators".to_string(),
-            ));
+            return Err(anyhow::anyhow!("No numerators"));
         }
 
         // Sort numerators and denominators in descending order
@@ -289,9 +284,7 @@ impl FixedPoint64 {
                 Err(_) => {
                     // Multiplication failed (overflow), try to divide
                     if den_idx == 0 {
-                        return Err(FixedPointError::Overflow(
-                            "Multiplication overflow".to_string(),
-                        ));
+                        return Err(anyhow::anyhow!("Multiplication overflow"));
                     }
                     let denominator = denominators[den_idx - 1];
                     result = result.div(&denominator)?;
@@ -329,27 +322,29 @@ fn sort_descending(v: &mut [FixedPoint64]) {
     }
 }
 
-pub(crate) fn pow_raw(x: U256, n: u128) -> Result<U256, FixedPointError> {
+pub(crate) fn pow_raw(x: U256, n: u128) -> Result<U256> {
     let mut res = U256::from(1_u128) << 64;
     let mut n_mut = n;
     let mut x_mut = x;
     while n_mut != 0 {
         if n_mut & 1 != 0 {
-            res = res.checked_mul(x_mut).ok_or_else(|| {
-                FixedPointError::Overflow("Multiplication overflow (pow_raw 1)".to_string())
-            })? >> 64;
+            res = res
+                .checked_mul(x_mut)
+                .ok_or_else(|| anyhow::anyhow!("Multiplication overflow (pow_raw_1)"))?
+                >> 64;
         }
         n_mut >>= 1;
-        x_mut = x_mut.checked_mul(x_mut).ok_or_else(|| {
-            FixedPointError::Overflow("Multiplication overflow (pow_raw)".to_string())
-        })? >> 64;
+        x_mut = x_mut
+            .checked_mul(x_mut)
+            .ok_or_else(|| anyhow::anyhow!("Multiplication overflow (pow_raw)"))?
+            >> 64;
     }
     Ok(res)
 }
 
-pub(crate) fn floor_log2(x: u128) -> Result<u32, FixedPointError> {
+pub(crate) fn floor_log2(x: u128) -> Result<u32> {
     if x == 0 {
-        return Err(FixedPointError::LogOfZero);
+        return Err(anyhow::anyhow!("Log of zero"));
     }
     let mut res = 0;
     let mut x_mut = x;
@@ -364,7 +359,7 @@ pub(crate) fn floor_log2(x: u128) -> Result<u32, FixedPointError> {
     Ok(res)
 }
 
-pub(crate) fn log2_64(x: u128) -> Result<FixedPoint64, FixedPointError> {
+pub(crate) fn log2_64(x: u128) -> Result<FixedPoint64> {
     let mut x_mut = x;
     let integer_part = floor_log2(x_mut)?;
     if x_mut >= 1_u128 << 63 {
@@ -377,7 +372,7 @@ pub(crate) fn log2_64(x: u128) -> Result<FixedPoint64, FixedPointError> {
     while delta != 0 {
         x_mut = (x_mut)
             .checked_mul(x_mut)
-            .ok_or_else(|| FixedPointError::Overflow("Multiplication overflow".to_string()))?
+            .ok_or_else(|| anyhow::anyhow!("Multiplication overflow"))?
             >> 63;
         if x_mut >= 2_u128 << 63 {
             frac += delta;
@@ -387,8 +382,8 @@ pub(crate) fn log2_64(x: u128) -> Result<FixedPoint64, FixedPointError> {
     }
     let result = (integer_part as u128)
         .checked_shl(64)
-        .ok_or_else(|| FixedPointError::Overflow("Shift overflow".to_string()))?
+        .ok_or_else(|| anyhow::anyhow!("Shift overflow"))?
         .checked_add(frac)
-        .ok_or_else(|| FixedPointError::Overflow("Addition overflow".to_string()))?;
+        .ok_or_else(|| anyhow::anyhow!("Addition overflow"))?;
     FixedPoint64::from_raw_value(result)
 }
