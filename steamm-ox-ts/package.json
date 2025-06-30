@@ -1,0 +1,35 @@
+{
+  "name": "steamm-ox-ts",
+  "version": "1.0.0",
+  "private": false,
+  "description": "Steamm offchain logic",
+  "license": "MIT",
+  "main": "./steamm-ox-ts/src/index.ts",
+  "exports": {
+    ".": "./steamm-ox-ts/src/index.js"
+  },
+  "types": "./steamm-ox-ts/src/index.ts",
+  "scripts": {
+    "build": "rm -rf ./dist && bun tsc",
+    "eslint": "eslint --fix \"./src/**/*.ts\"",
+    "prettier": "prettier --write \"./src/**/*\"",
+    "lint": "bun eslint && bun prettier && bun tsc --noEmit",
+    "test": "bun test",
+    "check": "bun tsc --noEmit",
+    "release": "bun run build && bun ts-node ./release.ts && cd ./dist && npm publish --access public"
+  },
+  "dependencies": {
+    "bignumber.js": "^9.1.2",
+    "decimal.js": "^10.5.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.17",
+    "@types/chai": "^4.3.19",
+    "@types/jest": "^29.5.14",
+    "babel-jest": "^29.7.0",
+    "chai": "^5.1.1",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2"
+  }
+}

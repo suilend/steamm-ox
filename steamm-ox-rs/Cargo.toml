@@ -1,0 +1,12 @@
+[package]
+name = "steamm-ox"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "steamm_ox"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.98"
+uint = "0.10.0"

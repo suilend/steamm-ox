@@ -373,7 +373,7 @@ mod tests {
     fn test_quote_swap_with_different_btoken_ratios() -> Result<()> {
         // Test case 1
         let amt_out = quote_swap_no_fees(
-            11000000,          // 10 * 10^6 * 1.1
+            11_000_000,        // 10 * 10^6 * 1.1
             1_000_000_000_000, // 1_000 * 10^9
             3_000_000_000,     // 1_000 * 10^6
             Decimal::from("3"),
@@ -390,7 +390,7 @@ mod tests {
         assert_eq!(amt_out, 3_437_018_129, "Test case 1 failed");
 
         let amt_out = quote_swap_no_fees(
-            10000000,          // 10 * 10^6
+            10_000_000,        // 10 * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             3_000_000_000,     // 1_000 * 10^6
             Decimal::from("3"),
