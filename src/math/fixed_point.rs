@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 
 use crate::math::u256::U256;
+use std::fmt;
 
 const LN2: u128 = 12_786_308_645_202_655_660; // ln(2) in fixed 64 representation
 const MAX_U128: u128 = 340_282_366_920_938_463_463_374_607_431_768_211_455; // 2^128 - 1
@@ -37,6 +38,25 @@ impl std::error::Error for FixedPointError {}
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FixedPoint64 {
     value: u128,
+}
+
+impl fmt::Display for FixedPoint64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Scaling factor is 2^64
+        let scaling_factor = 1u128 << 64;
+        let raw_value = self.value;
+
+        let integer_part = raw_value / scaling_factor;
+        let fractional_part = raw_value % scaling_factor;
+
+        // Use 10^18 to get 18 decimal places
+        let decimal_scaling = 1_000_000_000_000_000_000u128;
+        let fractional_display =
+            (fractional_part as u128).saturating_mul(decimal_scaling) / scaling_factor;
+
+        // Pad fractional part with leading zeros to 18 digits
+        write!(f, "{}.{:018}", integer_part, fractional_display)
+    }
 }
 
 impl FixedPoint64 {
@@ -138,19 +158,11 @@ impl FixedPoint64 {
     }
 
     pub fn max(x: Self, y: Self) -> Self {
-        if x.value > y.value {
-            x
-        } else {
-            y
-        }
+        if x.value > y.value { x } else { y }
     }
 
     pub fn min(x: Self, y: Self) -> Self {
-        if x.value < y.value {
-            x
-        } else {
-            y
-        }
+        if x.value < y.value { x } else { y }
     }
 
     // === Math Operations ===
@@ -242,9 +254,80 @@ impl FixedPoint64 {
 
         Self::from_raw_value(result_u128)
     }
+
+    /// Computes (n1 * n2 * ... * nk) / (d1 * d2 * ... * dm) with checks for overflow, zero division, and precision loss.
+    /// The computation schedules multiplications and divisions to maximize precision and minimize overflow risk.
+    /// Numerators and denominators are sorted in descending order before processing.
+    pub fn multiply_divide(
+        numerators: &mut Vec<FixedPoint64>,
+        denominators: &mut Vec<FixedPoint64>,
+    ) -> Result<FixedPoint64, FixedPointError> {
+        if numerators.is_empty() {
+            return Err(FixedPointError::AssertionFailed(
+                "No numerators".to_string(),
+            ));
+        }
+
+        // Sort numerators and denominators in descending order
+        sort_descending(numerators);
+        sort_descending(denominators);
+
+        // Initialize result to 1.0 (2^64 in FixedPoint64)
+        let mut result = FixedPoint64::one()?;
+
+        let mut num_idx = numerators.len();
+        let mut den_idx = denominators.len();
+
+        // Process numerators
+        while num_idx > 0 {
+            let numerator = numerators[num_idx - 1];
+            match result.mul(&numerator) {
+                Ok(product) => {
+                    result = product;
+                    num_idx -= 1;
+                }
+                Err(_) => {
+                    // Multiplication failed (overflow), try to divide
+                    if den_idx == 0 {
+                        return Err(FixedPointError::Overflow(
+                            "Multiplication overflow".to_string(),
+                        ));
+                    }
+                    let denominator = denominators[den_idx - 1];
+                    result = result.div(&denominator)?;
+                    den_idx -= 1;
+                }
+            }
+        }
+
+        // Process remaining denominators
+        while den_idx > 0 {
+            let denominator = denominators[den_idx - 1];
+            result = result.div(&denominator)?;
+            den_idx -= 1;
+        }
+
+        Ok(result)
+    }
 }
 
 // === Private Helper Functions ===
+
+/// Sorts a mutable slice of FixedPoint64 in descending order using insertion sort.
+/// Efficient for small slices (length <= 3).
+fn sort_descending(v: &mut [FixedPoint64]) {
+    let len = v.len();
+    if len <= 1 {
+        return;
+    }
+    for i in 1..len {
+        let mut j = i;
+        while j > 0 && v[j - 1].value < v[j].value {
+            v.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
 
 pub(crate) fn pow_raw(x: U256, n: u128) -> Result<U256, FixedPointError> {
     let mut res = U256::from(1_u128) << 64;

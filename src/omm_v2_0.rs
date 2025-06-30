@@ -92,8 +92,6 @@ pub fn quote_swap_inner(
     let amp = FixedPoint64::from(amplifier as u128)?;
     let delta_in = FixedPoint64::from(amount_in)?;
 
-    let price_raw = p_x.div(&p_y)?;
-
     let dec_pow = if decimals_x >= decimals_y {
         FixedPoint64::from(10)?.pow(decimals_x - decimals_y)?
     } else {
@@ -101,9 +99,9 @@ pub fn quote_swap_inner(
     };
 
     let k = if x2y {
-        delta_in.mul(&price_raw)?.div(&r_y.mul(&dec_pow)?)?
+        FixedPoint64::multiply_divide(&mut vec![delta_in, p_x], &mut vec![r_y, p_y, dec_pow])?
     } else {
-        delta_in.mul(&dec_pow)?.div(&r_x.mul(&price_raw)?)?
+        FixedPoint64::multiply_divide(&mut vec![delta_in, dec_pow, p_y], &mut vec![r_x, p_x])?
     };
 
     let max_bound = FixedPoint64::from_rational(9_999_999_999, 10_000_000_000)?;
@@ -266,7 +264,6 @@ mod tests {
             Decimal::from("1.0"),
             Decimal::from("1.0"),
         )?;
-        println!("amt_out: {:?}", amt_out);
         assert_eq!(amt_out, 3_327_783_945, "Test case 1 failed");
 
         // Test case 2
@@ -338,9 +335,9 @@ mod tests {
         )?;
         assert_eq!(amt_out, 3_327_783_945, "Test case 1 failed");
 
-        // Changing btoken ratio of input token does not inpact output
+        // Changing btoken ratio of input token does not impact output
         let amt_out = quote_swap(
-            11_000_000,        // 10 / btoken ratio y * 10^6
+            5_000_000,         // 10 / btoken ratio y * 10^6
             1_000_000_000_000, // 1_000 * 10^9
             1_000_000_000,     // 1_000 * 10^6
             Decimal::from("3"),
@@ -350,14 +347,11 @@ mod tests {
             1,
             false,
             Decimal::from("1.0"),
-            Decimal::from("1.0")
-                .checked_div(&Decimal::from("1.1"))
-                .unwrap(),
+            Decimal::from("2.0"),
         )?;
-        println!("amt_out: {:?}", amt_out);
         assert_eq!(amt_out, 3_327_783_945, "Test case 1 failed");
 
-        // Changing btoken ratio of output token DOES inpact output
+        // Changing btoken ratio of output token DOES impact output
         let amt_out = quote_swap(
             10_000_000,        // 10 / * 10^6
             1_000_000_000_000, // 1_000 * 10^9
@@ -371,10 +365,9 @@ mod tests {
             Decimal::from("0.5"),
             Decimal::from("1.0"),
         )?;
-        println!("amt_out: {:?}", amt_out);
         assert_eq!(amt_out, 6_644_493_744, "Test case 1 failed");
 
-        // Changing btoken ratio of output token DOES inpact output
+        // Changing btoken ratio of output token DOES impact output
         let amt_out = quote_swap(
             10_000_000,        // 10 / * 10^6
             1_000_000_000_000, // 1_000 * 10^9
@@ -388,7 +381,6 @@ mod tests {
             Decimal::from("2.0"),
             Decimal::from("1.0"),
         )?;
-        println!("amt_out: {:?}", amt_out);
         assert_eq!(amt_out, 1665278549, "Test case 1 failed");
 
         Ok(())
@@ -733,12 +725,10 @@ mod tests {
 
             match result {
                 Ok(amt_out) => {
-                    println!("Iteration {}: amt_out = {}", i + 1, amt_out);
                     results.push(amt_out);
                 }
                 Err(e) => {
-                    eprintln!("Iteration {} failed: {:?}", i + 1, e);
-                    results.push(0);
+                    panic!("Error at iteration {}: {:?}", i + 1, e);
                 }
             }
         }
