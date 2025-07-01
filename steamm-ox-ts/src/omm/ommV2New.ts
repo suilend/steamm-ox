@@ -1,8 +1,74 @@
 import Decimal from "decimal.js";
+import { BPS_SCALE, getQuote, SwapQuote } from "..";
 
 export const A_PRECISION = 100;
 export const LIMIT = 255;
 export const SCALE = BigInt(10000000000);
+
+// Swap function - with btoken amounts
+export function quoteSwap(
+  bTokenAmountIn: bigint,
+  bTokenReserveX: bigint,
+  bTokenReserveY: bigint,
+  priceX: number,
+  priceY: number,
+  decimalsX: number,
+  decimalsY: number,
+  amplifier: number,
+  x2y: boolean,
+  bTokenRatioX: Decimal,
+  bTokenRatioY: Decimal,
+  swapFeeBps: bigint,
+  priceConfidenceA: Decimal,
+  priceConfidenceB: Decimal,
+): SwapQuote {
+  const amountOutBToken = quoteSwapNoFees(
+    bTokenAmountIn,
+    bTokenReserveX,
+    bTokenReserveY,
+    priceX,
+    priceY,
+    decimalsX,
+    decimalsY,
+    amplifier,
+    x2y,
+    bTokenRatioX,
+    bTokenRatioY,
+  );
+
+  const priceUncertaintyRatioA = priceUncertaintyRatio(
+    new Decimal(priceX),
+    priceConfidenceA,
+  );
+  const priceUncertaintyRatioB = priceUncertaintyRatio(
+    new Decimal(priceY),
+    priceConfidenceB,
+  );
+
+  return getQuote(
+    bTokenAmountIn,
+    amountOutBToken,
+    x2y,
+    swapFeeBps,
+    BigInt(
+      priceUncertaintyRatioA > priceUncertaintyRatioB
+        ? priceUncertaintyRatioA
+        : priceUncertaintyRatioB,
+    ),
+  );
+}
+
+export function priceUncertaintyRatio(
+  price: Decimal,
+  priceConfidence: Decimal,
+): bigint {
+  try {
+    const result = priceConfidence.mul(new Decimal(10_000)).div(price).floor();
+    return BigInt(result.toString());
+  } catch (e) {
+    throw new Error("priceUncertaintyRatio: Calculation failed");
+  }
+}
 
 // Swap function - with btoken amounts
 export function quoteSwapNoFees(

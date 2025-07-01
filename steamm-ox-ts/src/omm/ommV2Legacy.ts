@@ -1,5 +1,38 @@
 import Decimal from "decimal.js";
 import { FixedPoint64 } from "../math/fixedPoint64";
+import { getQuote, SwapQuote } from "..";
+
+// Swap function - with btoken amounts
+export function quoteSwap(
+  bTokenAmountIn: bigint,
+  bTokenReserveX: bigint,
+  bTokenReserveY: bigint,
+  priceX: number,
+  priceY: number,
+  decimalsX: number,
+  decimalsY: number,
+  amplifier: number,
+  x2y: boolean,
+  bTokenRatioX: Decimal,
+  bTokenRatioY: Decimal,
+  swapFeeBps: bigint,
+): SwapQuote {
+  const amountOutBToken = quoteSwapNoFees(
+    bTokenAmountIn,
+    bTokenReserveX,
+    bTokenReserveY,
+    priceX,
+    priceY,
+    decimalsX,
+    decimalsY,
+    amplifier,
+    x2y,
+    bTokenRatioX,
+    bTokenRatioY,
+  );
+
+  return getQuote(bTokenAmountIn, amountOutBToken, x2y, swapFeeBps);
+}
 
 // Swap function - with btoken amounts
 export function quoteSwapNoFees(
