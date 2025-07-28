@@ -22,7 +22,7 @@ export async function test() {
         new Decimal("1.0"),
         new Decimal("1.0"),
       );
-      expect(amountOut).toBe(BigInt(5_156_539_131));
+      expect(amountOut).toBe(BigInt(5_156_539_130));
 
       amountOut = ommV2New.quoteSwapNoFees(
         new BN(100_000_000), // 100 * 10^6
@@ -38,7 +38,7 @@ export async function test() {
         new Decimal("1.0"),
       );
 
-      expect(amountOut).toBe(BigInt(49_852_725_214));
+      expect(amountOut).toBe(BigInt(49_852_725_213));
 
       amountOut = ommV2New.quoteSwapNoFees(
         new BN(5_156_539_131), // 10 * 10^9
@@ -53,7 +53,7 @@ export async function test() {
         new Decimal("1.0"),
         new Decimal("1.0"),
       );
-      expect(amountOut).toBe(BigInt(9_920_472));
+      expect(amountOut).toBe(BigInt(9_920_471));
     });
 
     it("Test swap with different btoken ratios", () => {
@@ -72,7 +72,7 @@ export async function test() {
         new Decimal("1.0"),
         new Decimal("1.0").div(new Decimal("1.1")),
       );
-      expect(amountOut).toBe(BigInt(3_437_018_129));
+      expect(amountOut).toBe(BigInt(3_437_018_128));
 
       // Test case 2
       amountOut = ommV2New.quoteSwapNoFees(
@@ -88,7 +88,7 @@ export async function test() {
         new Decimal("0.5"),
         new Decimal("1.0"),
       );
-      expect(amountOut).toBe(BigInt(5_181_584_616));
+      expect(amountOut).toBe(BigInt(5_181_584_614));
 
       // Test case 3
       amountOut = ommV2New.quoteSwapNoFees(
@@ -104,7 +104,7 @@ export async function test() {
         new Decimal("2.0"),
         new Decimal("1.0"),
       );
-      expect(amountOut).toBe(BigInt(2_138_121_896));
+      expect(amountOut).toBe(BigInt(2_138_121_895));
     });
 
     it("Test getD function with various inputs", () => {

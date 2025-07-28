@@ -150,7 +150,7 @@ pub fn quote_swap_no_fees(
         let reserve_out_after_trade =
             (scaled_reserve_out_after_trade * 10_u64.pow(decimals_y) / U256::from(SCALE)).as_u64();
 
-        let amount_out_underlying = reserve_y - reserve_out_after_trade;
+        let amount_out_underlying = reserve_y - reserve_out_after_trade - 1;
         let amount_out_btoken = to_b_token(amount_out_underlying, &b_token_ratio_y);
 
         if amount_out_btoken > b_token_reserve_y {
@@ -176,7 +176,7 @@ pub fn quote_swap_no_fees(
         let reserve_out_after_trade =
             (scaled_reserve_out_after_trade * 10_u64.pow(decimals_x) / U256::from(SCALE)).as_u64();
 
-        let amount_out_underlying = reserve_x - reserve_out_after_trade;
+        let amount_out_underlying = reserve_x - reserve_out_after_trade - 1;
         let amount_out_btoken = to_b_token(amount_out_underlying, &b_token_ratio_x);
 
         if amount_out_btoken > b_token_reserve_x {
@@ -332,7 +332,7 @@ mod tests {
             Decimal::from("1.0"),
             Decimal::from("1.0"),
         )?;
-        assert_eq!(amt_out, 5_156_539_131, "Test case 1 failed");
+        assert_eq!(amt_out, 5_156_539_130, "Test case 1 failed");
 
         // Test case 2
         let amt_out = quote_swap_no_fees(
@@ -348,7 +348,7 @@ mod tests {
             Decimal::from("1.0"),
             Decimal::from("1.0"),
         )?;
-        assert_eq!(amt_out, 49_852_725_214, "Test case 2 failed");
+        assert_eq!(amt_out, 49_852_725_213, "Test case 2 failed");
 
         // Test case 3
         let amt_out = quote_swap_no_fees(
@@ -364,7 +364,7 @@ mod tests {
             Decimal::from("1.0"),
             Decimal::from("1.0"),
         )?;
-        assert_eq!(amt_out, 9_920_472, "Test case 3 failed");
+        assert_eq!(amt_out, 9_920_471, "Test case 3 failed");
 
         Ok(())
     }
@@ -387,7 +387,7 @@ mod tests {
                 .checked_div(&Decimal::from("1.1"))
                 .unwrap(),
         )?;
-        assert_eq!(amt_out, 3_437_018_129, "Test case 1 failed");
+        assert_eq!(amt_out, 3_437_018_128, "Test case 1 failed");
 
         let amt_out = quote_swap_no_fees(
             10_000_000,        // 10 * 10^6
@@ -402,7 +402,7 @@ mod tests {
             Decimal::from("0.5"),
             Decimal::from("1.0"),
         )?;
-        assert_eq!(amt_out, 5_181_584_616, "Test case 2 failed");
+        assert_eq!(amt_out, 5_181_584_614, "Test case 2 failed");
 
         let amt_out = quote_swap_no_fees(
             10000000,          // 10 * 10^6
@@ -417,7 +417,7 @@ mod tests {
             Decimal::from("2.0"),
             Decimal::from("1.0"),
         )?;
-        assert_eq!(amt_out, 2_138_121_896, "Test case 3 failed");
+        assert_eq!(amt_out, 2_138_121_895, "Test case 3 failed");
 
         Ok(())
     }

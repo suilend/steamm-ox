@@ -167,7 +167,7 @@ export function quoteSwapNoFees(
     const reserveOutAfterTrade =
       (scaledReserveOutAfterTrade * BigInt(10 ** decimalsY)) / SCALE;
 
-    const amountOutUnderlying = reserveY - reserveOutAfterTrade;
+    const amountOutUnderlying = reserveY - reserveOutAfterTrade - BigInt(1);
     amountOutBToken = toBToken(amountOutUnderlying, bTokenRatioY);
 
     if (amountOutBToken > bTokenReserveY) {
@@ -193,7 +193,7 @@ export function quoteSwapNoFees(
     const reserveOutAfterTrade =
       (scaledReserveOutAfterTrade * BigInt(10 ** decimalsX)) / SCALE;
 
-    const amountOutUnderlying = reserveX - reserveOutAfterTrade;
+    const amountOutUnderlying = reserveX - reserveOutAfterTrade - BigInt(1);
     amountOutBToken = toBToken(amountOutUnderlying, bTokenRatioX);
 
     if (amountOutBToken > bTokenReserveX) {
