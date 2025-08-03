@@ -7,6 +7,66 @@ use anyhow::Result;
 
 // === Swap Functions ===
 
+pub struct SwapParams {
+    // Amount in (btoken token - e.g. bSUI or bUSDC)
+    pub b_token_amount_in: u64,
+    // Reserve X (btoken token - e.g. bSUI)
+    pub b_token_reserve_x: u64,
+    // Reserve Y (btoken token - e.g. bUSDC)
+    pub b_token_reserve_y: u64,
+    // Price X (underlying price - e.g. 3 SUI)
+    pub price_x: Decimal,
+    // Price Y (underlying price - e.g. 1 USDC)
+    pub price_y: Decimal,
+    pub decimals_x: u32,
+    pub decimals_y: u32,
+    pub amplifier: u32,
+    pub x2y: bool,
+    pub b_token_ratio_x: Decimal,
+    pub b_token_ratio_y: Decimal,
+    pub swap_fee_bps: u64,
+}
+
+pub fn quote_swap_iterative(
+    previous_swaps: Vec<SwapQuote>,
+    swap_params: SwapParams,
+) -> Result<SwapQuote> {
+    let previous_amounts_in = previous_swaps
+        .iter()
+        .fold(0, |acc, swap| acc + swap.amount_in);
+    let previous_amounts_out = previous_swaps
+        .iter()
+        .fold(0, |acc, swap| acc + swap.amount_out);
+    let previous_protocol_fees = previous_swaps
+        .iter()
+        .fold(0, |acc, swap| acc + swap.protocol_fees);
+    let previous_pool_fees = previous_swaps
+        .iter()
+        .fold(0, |acc, swap| acc + swap.pool_fees);
+
+    let mut aggregate_quote = quote_swap(
+        previous_amounts_in + swap_params.b_token_amount_in,
+        swap_params.b_token_reserve_x,
+        swap_params.b_token_reserve_y,
+        swap_params.price_x.clone(),
+        swap_params.price_y.clone(),
+        swap_params.decimals_x,
+        swap_params.decimals_y,
+        swap_params.amplifier,
+        swap_params.x2y,
+        swap_params.b_token_ratio_x.clone(),
+        swap_params.b_token_ratio_y.clone(),
+        swap_params.swap_fee_bps,
+    )?;
+
+    aggregate_quote.amount_in -= previous_amounts_in;
+    aggregate_quote.amount_out -= previous_amounts_out;
+    aggregate_quote.protocol_fees -= previous_protocol_fees;
+    aggregate_quote.pool_fees -= previous_pool_fees;
+
+    Ok(aggregate_quote)
+}
+
 pub fn quote_swap(
     // Amount in (btoken token - e.g. bSUI or bUSDC)
     b_token_amount_in: u64,
