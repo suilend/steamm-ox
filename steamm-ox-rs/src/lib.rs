@@ -7,6 +7,7 @@ pub mod omm;
 pub const BPS_SCALE: u64 = 10_000; // Basis points scale factor
 const PROTOCOL_FEE_NUMERATOR: u64 = 2_000;
 
+#[derive(Debug)]
 pub struct SwapQuote {
     pub amount_in: u64,
     pub amount_out: u64,

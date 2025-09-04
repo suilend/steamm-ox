@@ -338,6 +338,8 @@ fn compute_f_prime(z: &FixedPoint64, a: &FixedPoint64) -> Result<FixedPoint64> {
 
 #[cfg(test)]
 mod tests {
+    use crate::math::u256::U256;
+
     use super::*;
 
     #[test]
