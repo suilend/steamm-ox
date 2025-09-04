@@ -5,7 +5,6 @@ use crate::{
 };
 use anyhow::Result;
 
-const SCALE: u64 = 10000000000;
 const A_PRECISION: u128 = 100;
 const LIMIT: usize = 255;
 
@@ -98,59 +97,34 @@ pub fn quote_swap_no_fees(
     let reserve_x = to_underlying(b_token_reserve_x, &b_token_ratio_x);
     let reserve_y = to_underlying(b_token_reserve_y, &b_token_ratio_y);
 
-    let (price_x_integer_part, price_x_decimal_part_inverted) = split_price(price_x)?;
-    let (price_y_integer_part, price_y_decimal_part_inverted) = split_price(price_y)?;
-
     // We avoid using Decimal and use u256 instead to increase the overflow limit
     // Reserves are in USD value and scaled by 10^10
-    let scaled_usd_reserve_x = {
-        let scaled_reserve = U256::from(reserve_x) * U256::from(SCALE);
-        let scaled_reserve_usd = to_usd(
-            scaled_reserve,
-            price_x_integer_part,
-            price_x_decimal_part_inverted,
-        );
-        scaled_reserve_usd / (10_u64.pow(decimals_x))
-    };
-
-    let scaled_usd_reserve_y = {
-        let scaled_reserve = U256::from(reserve_y) * U256::from(SCALE);
-        let scaled_reserve_usd = to_usd(
-            scaled_reserve,
-            price_y_integer_part,
-            price_y_decimal_part_inverted,
-        );
-
-        scaled_reserve_usd / 10_u64.pow(decimals_y)
-    };
+    let scaled_usd_reserve_x = to_usd(reserve_x, price_x, decimals_x);
+    let scaled_usd_reserve_y = to_usd(reserve_y, price_y, decimals_y);
 
     // We follow the Curve convention where the amplifier is actually defined as
     // A * n^(n-1) * A_PRECISION => A * 2^1 * A_PRECISION
     let scaled_amp = U256::from(amplifier * 2) * U256::from(A_PRECISION);
-    let d = get_d(scaled_usd_reserve_x, scaled_usd_reserve_y, scaled_amp);
+    let d = get_d(scaled_usd_reserve_x.0, scaled_usd_reserve_y.0, scaled_amp);
 
-    let scaled_amount_in = U256::from(amount_in) * U256::from(SCALE);
+    // let scaled_amount_in = U256::from(amount_in) * U256::from(SCALE);
 
     let amount_out_btoken = if x2y {
-        let scaled_usd_amount_in = to_usd(
-            scaled_amount_in,
-            price_x_integer_part,
-            price_x_decimal_part_inverted,
-        ) / 10_u64.pow(decimals_x);
+        let scaled_usd_amount_in = to_usd(amount_in, price_x, decimals_x);
 
-        let scaled_usd_reserve_out_after_trade =
-            get_y(scaled_usd_reserve_x + scaled_usd_amount_in, scaled_amp, d);
-
-        let scaled_reserve_out_after_trade = from_usd(
-            scaled_usd_reserve_out_after_trade,
-            price_y_integer_part,
-            price_y_decimal_part_inverted,
+        let scaled_usd_reserve_out_after_trade = get_y(
+            scaled_usd_reserve_x.0 + scaled_usd_amount_in.0,
+            scaled_amp,
+            d,
         );
 
-        let reserve_out_after_trade =
-            (scaled_reserve_out_after_trade * 10_u64.pow(decimals_y) / U256::from(SCALE)).as_u64();
+        let reserve_out_after_trade = from_usd(
+            Decimal::from_scaled_u256(scaled_usd_reserve_out_after_trade),
+            price_y,
+            decimals_y,
+        );
 
-        let amount_out_underlying = reserve_y - reserve_out_after_trade - 1;
+        let amount_out_underlying = reserve_y - reserve_out_after_trade;
         let amount_out_btoken = to_b_token(amount_out_underlying, &b_token_ratio_y);
 
         if amount_out_btoken > b_token_reserve_y {
@@ -158,25 +132,21 @@ pub fn quote_swap_no_fees(
         }
         amount_out_btoken
     } else {
-        let scaled_usd_amount_in = to_usd(
-            scaled_amount_in,
-            price_y_integer_part,
-            price_y_decimal_part_inverted,
-        ) / 10_u64.pow(decimals_y);
+        let scaled_usd_amount_in = to_usd(amount_in, price_y, decimals_y);
 
-        let scaled_usd_reserve_out_after_trade =
-            get_y(scaled_usd_reserve_y + scaled_usd_amount_in, scaled_amp, d);
-
-        let scaled_reserve_out_after_trade = from_usd(
-            scaled_usd_reserve_out_after_trade,
-            price_x_integer_part,
-            price_x_decimal_part_inverted,
+        let scaled_usd_reserve_out_after_trade = get_y(
+            scaled_usd_reserve_y.0 + scaled_usd_amount_in.0,
+            scaled_amp,
+            d,
         );
 
-        let reserve_out_after_trade =
-            (scaled_reserve_out_after_trade * 10_u64.pow(decimals_x) / U256::from(SCALE)).as_u64();
+        let reserve_out_after_trade = from_usd(
+            Decimal::from_scaled_u256(scaled_usd_reserve_out_after_trade),
+            price_x,
+            decimals_x,
+        );
 
-        let amount_out_underlying = reserve_x - reserve_out_after_trade - 1;
+        let amount_out_underlying = reserve_x - reserve_out_after_trade;
         let amount_out_btoken = to_b_token(amount_out_underlying, &b_token_ratio_x);
 
         if amount_out_btoken > b_token_reserve_x {
@@ -188,54 +158,24 @@ pub fn quote_swap_no_fees(
     Ok(amount_out_btoken)
 }
 
-/// Splits the price into integer and decimal part, using U256.
-/// The decimal part is inverted and floored to U256, or None if no decimal part.
-pub fn split_price(price: Decimal) -> Result<(U256, Option<U256>)> {
-    let price_integer_part_u64 = price
-        .checked_floor::<u64>()
-        .ok_or_else(|| anyhow::anyhow!("Failed to get integer part of price"))?;
-
-    let price_integer_part = U256::from(price_integer_part_u64);
-    let price_decimal_part = price
-        .checked_sub(&Decimal::from(price_integer_part_u64))
-        .ok_or_else(|| anyhow::anyhow!("Failed to get decimal part of price"))?;
-
-    if price_decimal_part.eq(&Decimal::from(0_u64)) {
-        Ok((price_integer_part, None))
-    } else {
-        let price_decimal_part_inverted = (Decimal::from(1_u64).checked_div(&price_decimal_part))
-            .ok_or_else(|| anyhow::anyhow!("Failed to invert decimal part of price"))?
-            .checked_floor::<u64>()
-            .ok_or_else(|| anyhow::anyhow!("Failed to floor inverted decimal part of price"))?;
-        Ok((
-            price_integer_part,
-            Some(U256::from(price_decimal_part_inverted)),
-        ))
-    }
-}
-
 /// Converts a unit amount into a USD amount using split price.
-pub fn to_usd(
-    amount: U256,
-    price_integer_part: U256,
-    price_decimal_part_inverted: Option<U256>,
-) -> U256 {
-    match price_decimal_part_inverted {
-        Some(inv) => amount * price_integer_part + amount / inv,
-        None => amount * price_integer_part,
-    }
+pub fn to_usd(amount: u64, price: Decimal, decimals: u32) -> Decimal {
+    Decimal::from(amount)
+        .checked_mul(&price)
+        .unwrap()
+        .checked_div(&Decimal::from(10_u64.pow(decimals)))
+        .unwrap()
 }
 
 /// Converts a USD amount into a unit amount using split price.
-pub fn from_usd(
-    usd_amount: U256,
-    price_integer_part: U256,
-    price_decimal_part_inverted: Option<U256>,
-) -> U256 {
-    match price_decimal_part_inverted {
-        Some(inv) => usd_amount * inv / (price_integer_part * inv + U256::one()),
-        None => usd_amount / price_integer_part,
-    }
+pub fn from_usd(usd_amount: Decimal, price: Decimal, decimals: u32) -> u64 {
+    usd_amount
+        .checked_div(&price)
+        .unwrap()
+        .checked_mul(&Decimal::from(10_u64.pow(decimals)))
+        .unwrap()
+        .checked_ceil()
+        .unwrap()
 }
 
 /// Calculates the D invariant for a 2-coin pool using integer math.
@@ -775,5 +715,41 @@ mod tests {
             u256(725_272_897_710_721),
             u256(256_991_438_480_111),
         );
+    }
+
+    #[test]
+    fn test_quote() -> anyhow::Result<()> {
+        let quote = quote_swap(
+            9707651764265,                               // b_token_amount_in
+            758169040023400,                             // b_token_reserve_x
+            546624439196,                                // b_token_reserve_y
+            Decimal(U256::from(399708020000000000u64)),  // price_x
+            Decimal(U256::from(999900350000000000u64)),  // price_y
+            9,                                           // decimals_x
+            6,                                           // decimals_y
+            10000,                                       // amplifier
+            true,                                        // x2y
+            Decimal(U256::from(1000000000000000000u64)), // Decimal(U256::from(1030115237220418356u64)),
+            Decimal(U256::from(1000000000000000000u64)), // Decimal(U256::from(1021227215424886858u64)),
+            0,
+            Decimal::from(0u64), // ie: conf = 0 -> should use default swap_fee_bps
+            Decimal::from(0u64),
+        )?;
+
+        println!(
+            "btoken ratio x: {}",
+            Decimal(U256::from(1030115237220418356u64))
+        );
+        println!(
+            "btoken ratio y: {}",
+            Decimal(U256::from(1021227215424886858u64))
+        );
+        println!("{:?}", quote);
+        let out = to_underlying(
+            quote.amount_out,
+            &Decimal(U256::from(1021227215424886858u64)),
+        );
+        println!("out: {}", out);
+        Ok(())
     }
 }

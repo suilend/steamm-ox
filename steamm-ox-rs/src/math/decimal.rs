@@ -26,7 +26,7 @@ mod consts {
 }
 
 /// Large decimal values, precise to 18 digits
-#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Decimal(pub U256);
 
 impl Decimal {
@@ -40,8 +40,12 @@ impl Decimal {
         U256::from(consts::HALF_WAD)
     }
 
-    fn from_scaled_val(scaled_val: u128) -> Self {
+    pub fn from_scaled_val(scaled_val: u128) -> Self {
         Self(U256::from(scaled_val))
+    }
+
+    pub fn from_scaled_u256(scaled_val: U256) -> Self {
+        Self(scaled_val)
     }
 
     pub fn checked_add(self, rhs: &Self) -> Option<Self> {
