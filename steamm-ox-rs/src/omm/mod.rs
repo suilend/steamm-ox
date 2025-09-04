@@ -16,7 +16,7 @@ pub struct SteammPool {
 
 pub enum QuoterType {
     Ommv2Legacy,
-    Ommv2,
+    Ommv2 { price_impact_threshold_bps: u64 },
 }
 
 impl SteammPool {
@@ -66,7 +66,9 @@ impl SteammPool {
                 b_token_ratio_y,
                 self.swap_fee_bps,
             ),
-            QuoterType::Ommv2 => omm_v2_new::quote_swap(
+            QuoterType::Ommv2 {
+                price_impact_threshold_bps,
+            } => omm_v2_new::quote_swap(
                 b_token_amount_in,
                 self.b_token_reserve_x,
                 self.b_token_reserve_y,
@@ -81,6 +83,7 @@ impl SteammPool {
                 self.swap_fee_bps,
                 price_confidence_a.unwrap(),
                 price_confidence_b.unwrap(),
+                price_impact_threshold_bps,
             ),
         }
     }

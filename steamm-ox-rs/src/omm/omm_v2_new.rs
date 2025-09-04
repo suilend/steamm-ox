@@ -30,6 +30,7 @@ pub fn quote_swap(
     swap_fee_bps: u64,
     price_confidence_a: Decimal,
     price_confidence_b: Decimal,
+    price_impact_threshold_bps: u64,
 ) -> Result<SwapQuote> {
     let amount_out_btoken = quote_swap_no_fees(
         b_token_amount_in,
@@ -43,6 +44,7 @@ pub fn quote_swap(
         x2y,
         b_token_ratio_x,
         b_token_ratio_y,
+        price_impact_threshold_bps,
     )?;
 
     let price_uncertainty_ratio_a = price_uncertainty_ratio(price_x, price_confidence_a)?;
@@ -84,6 +86,7 @@ pub fn quote_swap_no_fees(
     x2y: bool,
     b_token_ratio_x: Decimal,
     b_token_ratio_y: Decimal,
+    price_impact_threshold_bps: u64,
 ) -> Result<u64> {
     let amount_in = to_underlying(
         b_token_amount_in,
@@ -107,9 +110,7 @@ pub fn quote_swap_no_fees(
     let scaled_amp = U256::from(amplifier * 2) * U256::from(A_PRECISION);
     let d = get_d(scaled_usd_reserve_x.0, scaled_usd_reserve_y.0, scaled_amp);
 
-    // let scaled_amount_in = U256::from(amount_in) * U256::from(SCALE);
-
-    let amount_out_btoken = if x2y {
+    let mut amount_out_btoken = if x2y {
         let scaled_usd_amount_in = to_usd(amount_in, price_x, decimals_x);
 
         let scaled_usd_reserve_out_after_trade = get_y(
@@ -155,7 +156,104 @@ pub fn quote_swap_no_fees(
         amount_out_btoken
     };
 
+    // Caps the effective price at the oracle price with a bps threshold
+    let amount_with_max_price_impact = if x2y {
+        // a2b: Base -> Quote => oracle price × (1 + 0.0005)
+        let amount_out_with_no_slippage = quote_swap_from_oracle(
+            b_token_amount_in,
+            decimals_x,
+            decimals_y,
+            price_x,
+            price_y,
+            b_token_ratio_x,
+            b_token_ratio_y,
+        );
+
+        (amount_out_with_no_slippage as u128 * (10_000_u128 + (price_impact_threshold_bps as u128))
+            / 10_000_u128) as u64
+    } else {
+        // b2a: Quote -> Base => oracle price * (1 - 0.0005)
+        let amount_out_with_no_slippage = quote_swap_from_oracle(
+            b_token_amount_in,
+            decimals_y,
+            decimals_x,
+            price_y,
+            price_x,
+            b_token_ratio_y,
+            b_token_ratio_x,
+        );
+
+        // We saturate the amount to u64
+        // The reason being: when a user buys b2a the price tends to increase, and
+        // since the price increases is theoretically unbounded (0 --> +inf),
+        // if the price_impact_threshold_bps is close to 100% the amount out will be technically
+        // unbounded as well. This is safe to do this, since we always choose the minimum of both values
+        // Furthermore this is technically safe to do since at most, the numerator will be divided by 1 (i.e 10_000 - 9_999)
+        (u64::MAX as u128).min(
+            (amount_out_with_no_slippage as u128) * 10_000_u128
+                / (10_000_u128 - (price_impact_threshold_bps as u128)),
+        ) as u64
+    };
+
+    amount_out_btoken = amount_out_btoken.min(amount_with_max_price_impact);
+
     Ok(amount_out_btoken)
+}
+
+fn quote_swap_from_oracle(
+    btoken_amount_in: u64,
+    decimals_in: u32,
+    decimals_out: u32,
+    price_in: Decimal,
+    price_out: Decimal,
+    btoken_ratio_in: Decimal,
+    btoken_ratio_out: Decimal,
+) -> u64 {
+    /* More intuitive calculation here:
+        // 1. convert from btoken_in to regular token_in
+        let amount_in = decimal::from(btoken_amount_in).mul(btoken_ratio_in);
+
+        // 2. convert to dollar value
+        let dollar_value = amount_in
+            .div(decimal::from(10u64.pow(decimals_in as u8)))
+            .mul(price_in);
+
+        // 3. convert to token_out
+        let amount_out = dollar_value
+            .div(price_out)
+            .mul(decimal::from(10u64.pow(decimals_out as u8)));
+
+        // 4. convert to btoken_out
+        let btoken_amount_out = amount_out
+            .div(btoken_ratio_out)
+            .floor();
+
+        btoken_amount_out
+    */
+
+    let btoken_amount_out_unshifted = Decimal::from(btoken_amount_in)
+        .checked_mul(&btoken_ratio_in)
+        .unwrap()
+        .checked_mul(&price_in)
+        .unwrap()
+        .checked_div(&price_out)
+        .unwrap()
+        .checked_div(&btoken_ratio_out)
+        .unwrap();
+
+    if decimals_in > decimals_out {
+        btoken_amount_out_unshifted
+            .checked_div(&Decimal::from(10u64.pow(decimals_in - decimals_out)))
+            .unwrap()
+            .checked_floor()
+            .unwrap()
+    } else {
+        btoken_amount_out_unshifted
+            .checked_mul(&Decimal::from(10u64.pow(decimals_out - decimals_in)))
+            .unwrap()
+            .checked_floor()
+            .unwrap()
+    }
 }
 
 /// Converts a unit amount into a USD amount using split price.
@@ -271,6 +369,7 @@ mod tests {
             false,
             Decimal::from("1.0"),
             Decimal::from("1.0"),
+            BPS_SCALE,
         )?;
         assert_eq!(amt_out, 5_156_539_130, "Test case 1 failed");
 
@@ -287,6 +386,7 @@ mod tests {
             false,
             Decimal::from("1.0"),
             Decimal::from("1.0"),
+            BPS_SCALE,
         )?;
         assert_eq!(amt_out, 49_852_725_213, "Test case 2 failed");
 
@@ -303,6 +403,7 @@ mod tests {
             true,
             Decimal::from("1.0"),
             Decimal::from("1.0"),
+            BPS_SCALE,
         )?;
         assert_eq!(amt_out, 9_920_471, "Test case 3 failed");
 
@@ -326,6 +427,7 @@ mod tests {
             Decimal::from("1.0")
                 .checked_div(&Decimal::from("1.1"))
                 .unwrap(),
+            BPS_SCALE,
         )?;
         assert_eq!(amt_out, 3_437_018_128, "Test case 1 failed");
 
@@ -341,6 +443,7 @@ mod tests {
             false,
             Decimal::from("0.5"),
             Decimal::from("1.0"),
+            BPS_SCALE,
         )?;
         assert_eq!(amt_out, 5_181_584_614, "Test case 2 failed");
 
@@ -356,6 +459,7 @@ mod tests {
             false,
             Decimal::from("2.0"),
             Decimal::from("1.0"),
+            BPS_SCALE,
         )?;
         assert_eq!(amt_out, 2_138_121_895, "Test case 3 failed");
 
@@ -734,6 +838,7 @@ mod tests {
             0,
             Decimal::from(0u64), // ie: conf = 0 -> should use default swap_fee_bps
             Decimal::from(0u64),
+            BPS_SCALE,
         )?;
 
         println!(
